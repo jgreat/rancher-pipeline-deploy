@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"time"
 )
 
 type (
@@ -46,6 +47,12 @@ type (
 		Links      map[string]string `json:"links,omitempty"`
 		Name       string            `json:"name,omitempty"`
 	}
+	// Catalog -
+	Catalog struct {
+		State                string `json:"state"`
+		Transitioning        string `json:"transitioning"`
+		TransitioningMessage string `json:"transitioningMessage"`
+	}
 )
 
 // Exec -
@@ -57,6 +64,11 @@ func (p Plugin) Exec() error {
 	}
 
 	tag, err := p.parseTags()
+	if err != nil {
+		return err
+	}
+
+	err = p.refreshCatalog()
 	if err != nil {
 		return err
 	}
@@ -174,6 +186,40 @@ func (p Plugin) parseTags() (string, error) {
 	}
 
 	return "", fmt.Errorf("No semver tags found")
+}
+
+func (p Plugin) refreshCatalog() error {
+	//refresh catalog
+	log.Info("Refreshing Catalog: ", p.CatalogName)
+	refreshURL := fmt.Sprintf("%s/v3/catalogs/%s?action=refresh", p.RancherURL, p.CatalogName)
+	_, err := p.httpDo("POST", refreshURL, nil)
+	if err != nil {
+		return err
+	}
+
+	//poll for update
+	log.Info("Waiting for Catalog to sync.")
+	catalogURL := fmt.Sprintf("%s/v3/catalogs/%s", p.RancherURL, p.CatalogName)
+	catalog := &Catalog{}
+	for {
+		resp, err := p.httpDo("GET", catalogURL, nil)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(resp, catalog)
+		if err != nil {
+			return err
+		}
+		if catalog.Transitioning == "yes" {
+			log.Info("Catalog Sync: ", catalog.TransitioningMessage)
+		} else {
+			log.Info("Catalog Sync Complete.")
+			break
+		}
+		time.Sleep(10 * time.Second)
+	}
+
+	return nil
 }
 
 func (p Plugin) httpDo(method string, url string, body *bytes.Buffer) ([]byte, error) {
