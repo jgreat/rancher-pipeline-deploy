@@ -1,7 +1,7 @@
 FROM golang:1.11.2 as build
 WORKDIR /src
 ADD . /src
-RUN go mod tidy &&
+RUN go mod tidy && \
     go build -v
 
 FROM alpine
